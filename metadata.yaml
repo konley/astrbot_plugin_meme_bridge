@@ -1,0 +1,10 @@
+name: meme_bridge
+desc: 表情包桥接插件 - 自动将 smart_imagechat_hub 收集的表情包按标签分类同步到 meme_manager
+version: v1.1.0
+author: konley
+repo: "https://github.com/konley/astrbot_plugin_meme_bridge"
+help: |
+  表情包桥接插件
+  - 自动定时扫描 smart_imagechat_hub 的 image_index.json，将新表情包按标签分类同步到 meme_manager
+  - /表情包同步 立即执行一次同步
+  - /同步状态 查看同步统计信息

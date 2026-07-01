@@ -1,0 +1,38 @@
+{
+  "enable_sync": {
+    "description": "启用自动同步",
+    "type": "bool",
+    "hint": "开启后定时扫描旧插件的新表情包并同步到 meme_manager",
+    "default": true
+  },
+  "sync_interval": {
+    "description": "扫描间隔（秒）",
+    "type": "int",
+    "hint": "多久扫描一次 smart_imagechat_hub 的 image_index.json，默认 600 秒（10 分钟）",
+    "default": 600
+  },
+  "llm_provider_id": {
+    "description": "LLM Provider ID",
+    "type": "string",
+    "hint": "用于 LLM 视觉分类的 Provider ID，留空则使用框架默认 Provider。需支持图片输入",
+    "default": ""
+  },
+  "enable_llm_fallback": {
+    "description": "启用 LLM 辅助分类",
+    "type": "bool",
+    "hint": "标签映射不到分类时，调用视觉 LLM 从 21 个分类中选择，精准度更高",
+    "default": true
+  },
+  "source_plugin_name": {
+    "description": "源插件目录名",
+    "type": "string",
+    "hint": "smart_imagechat_hub 插件的目录名",
+    "default": "astrbot_plugin_smart_imagechat_hub"
+  },
+  "target_plugin_name": {
+    "description": "目标插件目录名",
+    "type": "string",
+    "hint": "meme_manager 插件的目录名",
+    "default": "meme_manager"
+  }
+}
