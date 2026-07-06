@@ -154,7 +154,10 @@ AstrBot 生态中有两个优秀的表情包插件，各有优劣：
 | 指令 | 别名 | 说明 |
 |------|------|------|
 | `/表情包同步` | `/同步表情包`、`/meme_sync` | 立即执行一次同步 |
-| `/同步状态` | `/meme_status` | 查看同步统计信息 |
+| `/表情包重扫` | `/重扫表情包`、`/meme_resync` | 清空已同步状态后重新同步 |
+| `/同步状态` | `/meme_status` | 查看同步统计与上次结果 |
+
+> 开启 `manual_sync_admin_only` 后，`/表情包同步` 与 `/表情包重扫` 仅 Bot 管理员可用。
 
 ### 同步结果示例
 
@@ -166,6 +169,7 @@ AstrBot 生态中有两个优秀的表情包插件，各有优劣：
   等共 8 个分类
 其中 LLM 辅助分类: 2 张
 当前图库总计: 3412 张
+⚠️ 哈希去重 2 张，源文件丢失 1 张
 ```
 
 **无新图时：**
@@ -173,36 +177,67 @@ AstrBot 生态中有两个优秀的表情包插件，各有优劣：
 [表情包同步] 完成 ✅ 未发现新表情包，当前图库共 3412 张
 ```
 
+**Dry-run 模式：**
+```
+[表情包同步] 演练完成 ✅（dry-run，未复制文件）
+本次同步 5 张新表情，归入 4 个分类：
+  ...
+```
+
 ## ⚙️ 配置详解
 
-### enable_sync（启用自动同步）
+| 配置项 | 类型 | 默认 | 说明 |
+|--------|------|------|------|
+| `enable_sync` | bool | `true` | 启用自动定时同步 |
+| `sync_interval` | int | `600` | 扫描间隔（秒），不低于 60 |
+| `llm_provider_id` | string | `""` | 视觉 LLM Provider ID，留空用框架默认 |
+| `enable_llm_fallback` | bool | `true` | 标签无法映射时调用视觉 LLM 兜底 |
+| `llm_concurrency` | int | `3` | LLM 视觉分类最大并发数 |
+| `llm_prompt_language` | string | `en` | `en` / `zh`，国产模型建议改 `zh` |
+| `source_plugin_name` | string | `astrbot_plugin_smart_imagechat_hub` | 源插件目录名 |
+| `target_plugin_name` | string | `meme_manager` | 目标插件目录名 |
+| `tag_mapping_path` | string | `""` | 外部标签映射 JSON 绝对路径，留空用内置 |
+| `dedup_by_hash` | bool | `true` | 内容 SHA256 去重，防止多 ID 重复入库 |
+| `dry_run` | bool | `false` | 演练模式：只统计不复制 |
+| `manual_sync_admin_only` | bool | `false` | 手动同步指令仅管理员可用 |
 
-开启后插件会按 `sync_interval` 的间隔自动扫描旧插件的新图片。关闭后只能通过 `/表情包同步` 指令手动触发。
+### 外部标签映射（v1.2.0 新增）
 
-### sync_interval（扫描间隔）
+编辑任意 JSON 文件，按下列格式自定义标签→分类映射，下次同步自动加载：
 
-多久扫描一次旧插件的 `image_index.json`。旧插件收集图片后打标签需要 5-30 秒，建议不低于 300 秒（5 分钟）。默认 600 秒（10 分钟）。
+```json
+{
+  "tag_to_categories": {
+    "开心": ["happy"],
+    "猫": ["cat", "cute"]
+  },
+  "category_descriptions": {
+    "happy": "Use when joy/celebration ...",
+    "cat": "For cat topics ..."
+  }
+}
+```
 
-### llm_provider_id（LLM Provider ID）
+在 WebUI 把文件绝对路径填到 `tag_mapping_path` 即可生效，无需重载插件。`category_descriptions` 也会作为 LLM 视觉分类的 prompt 描述，**自定义描述会改变 LLM 分类标准**。
 
-用于 LLM 辅助分类的 Provider ID。留空则使用 AstrBot 框架的默认 Provider。需要支持图片输入的视觉模型（如 MiniMax、GPT-4o、Claude 3.5 Sonnet 等）。
+### Dry-run 演练
 
-> 💡 你可以在 AstrBot WebUI 的 LLM Provider 管理页面查看已配置的 Provider ID。如果只有一个 Provider，留空即可。
+开启 `dry_run` 后插件不会实际复制任何文件，只统计和打印目标分类。改完标签映射想先看效果时很有用。
 
-### enable_llm_fallback（启用 LLM 辅助分类）
+### 内容哈希去重
 
-当标签映射无法将图片归入任何分类时，是否调用视觉 LLM 进行辅助分类。关闭后，无法映射的图片将直接归入"其他"分类。
+开启 `dedup_by_hash`（默认开）后，每张图同步前会算 SHA256。已同步过的内容直接跳过，避免旧插件因重试产生多 ID 导致重复入库。哈希表存在 `sync_state.json` 的 `content_hashes` 字段。
 
-### source_plugin_name / target_plugin_name
+### 关于 `memes_data.json`
 
-旧插件和新插件的目录名。如果你修改过插件目录名，需要在这里同步修改。
+桥接插件只会在 `memes_data.json` 中**追加新分类的描述**（仅当 key 不存在时）。你**手动修改或删除**已有描述不会被覆盖；删除某个分类文件夹后，对应描述条目会保留——这是 meme_manager 容错的需要，删除是安全的。
 
 ## 📁 文件结构
 
 ```
 astrbot_plugin_meme_bridge/
 ├── main.py                  # 插件主逻辑
-├── tag_mapping.py            # 标签→分类映射表
+├── tag_mapping.py            # 默认标签→分类映射表 + JSON 加载器
 ├── metadata.yaml             # 插件元数据
 ├── _conf_schema.json         # 配置项定义（WebUI 可见）
 ├── __init__.py
@@ -212,7 +247,7 @@ astrbot_plugin_meme_bridge/
 运行时数据：
 ```
 data/plugin_data/meme_bridge/
-└── sync_state.json           # 同步状态（已同步的图片 ID 记录）
+└── sync_state.json           # 同步状态（已同步图片 ID + 内容哈希 + 上次结果摘要）
 ```
 
 ## ❓ FAQ
@@ -244,7 +279,12 @@ data/plugin_data/meme_bridge/
 <details>
 <summary>如何修改分类体系？</summary>
 
-编辑 `tag_mapping.py` 文件中的 `TAG_TO_CATEGORIES` 和 `CATEGORY_DESCRIPTIONS`。修改后需要重新加载插件。已有分类的图片不会自动迁移，仅影响后续新同步的图片。
+两种方式：
+
+- **简单方式**：编辑 `tag_mapping.py` 中的 `DEFAULT_TAG_TO_CATEGORIES` 与 `DEFAULT_CATEGORY_DESCRIPTIONS`，然后**重载插件**。
+- **热加载方式（v1.2.0）**：把自定义映射写到 JSON 文件，在 WebUI 的 `tag_mapping_path` 填入绝对路径。下次同步自动生效，无需重载。
+
+已有分类的图片不会自动迁移，仅影响后续新同步的图片。如需对历史图片重新分类，使用 `/表情包重扫`（会清空已同步状态重新复制）。
 </details>
 
 <details>
@@ -256,6 +296,21 @@ data/plugin_data/meme_bridge/
 ## 📜 License
 
 MIT
+
+## 🆕 v1.2.0 更新日志
+
+- **修复**：`@register` 装饰器作者署名（`BoxAI` → `konley`），版本号与 metadata 同步
+- **修复**：磁盘 IO 改为 `asyncio.to_thread`，不再阻塞事件循环
+- **新增**：LLM 视觉分类并发限流（`llm_concurrency`，信号量控制）
+- **新增**：外部标签映射 JSON 文件支持（`tag_mapping_path`，无需重载插件即可热生效）
+- **新增**：内容 SHA256 去重（`dedup_by_hash`，防止旧插件多 ID 重复入库）
+- **新增**：Dry-run 演练模式（`dry_run`，只统计不复制）
+- **新增**：`/表情包重扫` 指令，清空已同步状态重新同步
+- **新增**：手动同步指令可选管理员限制（`manual_sync_admin_only`）
+- **新增**：LLM Prompt 双语支持（`llm_prompt_language`: `en` / `zh`）
+- **新增**：`time.time()` 替代 `asyncio.get_event_loop().time()`，时间戳可读
+- **优化**：`/同步状态` 展示上次同步结果摘要与配置快照
+- **优化**：跳过/失败统计分开显示（源文件丢失 vs 复制失败 vs 哈希去重）
 
 ## 🔗 相关链接
 

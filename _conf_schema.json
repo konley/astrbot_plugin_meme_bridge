@@ -3,25 +3,41 @@
     "description": "启用自动同步",
     "type": "bool",
     "hint": "开启后定时扫描旧插件的新表情包并同步到 meme_manager",
+    "tip": "关闭后只能通过 /表情包同步 指令手动触发",
     "default": true
   },
   "sync_interval": {
     "description": "扫描间隔（秒）",
     "type": "int",
     "hint": "多久扫描一次 smart_imagechat_hub 的 image_index.json，默认 600 秒（10 分钟）",
+    "tip": "旧插件打标签需要 5-30 秒，建议不低于 300 秒",
     "default": 600
   },
   "llm_provider_id": {
     "description": "LLM Provider ID",
     "type": "string",
     "hint": "用于 LLM 视觉分类的 Provider ID，留空则使用框架默认 Provider。需支持图片输入",
+    "tip": "在 WebUI 的 LLM Provider 管理页面查看已配置的 Provider ID",
     "default": ""
   },
   "enable_llm_fallback": {
     "description": "启用 LLM 辅助分类",
     "type": "bool",
-    "hint": "标签映射不到分类时，调用视觉 LLM 从 21 个分类中选择，精准度更高",
+    "hint": "标签映射不到分类时，调用视觉 LLM 从 19 个分类中选择，精准度更高",
+    "tip": "关闭后无法映射的图片直接归入 other 分类",
     "default": true
+  },
+  "llm_concurrency": {
+    "description": "LLM 并发数",
+    "type": "int",
+    "hint": "视觉 LLM 分类的最大并发请求数，建议 1-5，过高可能触发 Provider 限流",
+    "default": 3
+  },
+  "llm_prompt_language": {
+    "description": "LLM Prompt 语言",
+    "type": "string",
+    "hint": "视觉分类 Prompt 语言，国产模型建议 zh，海外模型建议 en",
+    "default": "en"
   },
   "source_plugin_name": {
     "description": "源插件目录名",
@@ -34,5 +50,31 @@
     "type": "string",
     "hint": "meme_manager 插件的目录名",
     "default": "meme_manager"
+  },
+  "tag_mapping_path": {
+    "description": "外部标签映射文件路径",
+    "type": "string",
+    "hint": "可选。自定义标签→分类映射的 JSON 文件绝对路径，留空使用内置默认映射",
+    "tip": "文件格式参考 README。修改后下次同步自动生效",
+    "default": ""
+  },
+  "dedup_by_hash": {
+    "description": "启用内容哈希去重",
+    "type": "bool",
+    "hint": "对每张新图片计算 SHA256，跳过已同步过的相同内容（防止旧插件多 ID 重复入库）",
+    "default": true
+  },
+  "dry_run": {
+    "description": "演练模式",
+    "type": "bool",
+    "hint": "开启后只统计不复制文件，方便测试标签映射和 LLM 分类效果",
+    "tip": "生产环境请保持关闭",
+    "default": false
+  },
+  "manual_sync_admin_only": {
+    "description": "手动同步指令仅管理员可用",
+    "type": "bool",
+    "hint": "开启后 /表情包同步、/表情包重扫 指令仅 Bot 管理员可触发，避免普通用户频繁触发 IO",
+    "default": false
   }
 }

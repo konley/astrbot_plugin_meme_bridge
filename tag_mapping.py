@@ -2,18 +2,40 @@
 
 Maps smart_imagechat_hub's fine-grained Chinese AI tags to meme_manager's
 English category folders. One tag can map to multiple categories.
+
+默认映射内嵌在本文件中，可通过配置项 ``tag_mapping_path`` 指定外部 JSON 文件覆盖。
+外部 JSON 格式::
+
+    {
+      "tag_to_categories": {
+        "开心": ["happy"],
+        "猫": ["cat"]
+      },
+      "category_descriptions": {
+        "happy": "Use when ...",
+        "cat": "For cat topics..."
+      }
+    }
 """
 
-TAG_TO_CATEGORIES: dict[str, list[str]] = {}
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+
+# ===== 默认标签→分类映射 =====
+
+DEFAULT_TAG_TO_CATEGORIES: dict[str, list[str]] = {}
 
 
 def _register(tags: list[str], categories: list[str]):
     for tag in tags:
-        if tag not in TAG_TO_CATEGORIES:
-            TAG_TO_CATEGORIES[tag] = []
+        if tag not in DEFAULT_TAG_TO_CATEGORIES:
+            DEFAULT_TAG_TO_CATEGORIES[tag] = []
         for cat in categories:
-            if cat not in TAG_TO_CATEGORIES[tag]:
-                TAG_TO_CATEGORIES[tag].append(cat)
+            if cat not in DEFAULT_TAG_TO_CATEGORIES[tag]:
+                DEFAULT_TAG_TO_CATEGORIES[tag].append(cat)
 
 
 # ===== Emotion / Scene =====
@@ -64,8 +86,9 @@ _register(["照片", "中年男性", "室内", "图片", "男性", "西装", "�
 _register(["天安门"], ["photo"])
 
 
-# ===== Category descriptions (for memes_data.json and LLM prompt) =====
-CATEGORY_DESCRIPTIONS: dict[str, str] = {
+# ===== 默认分类描述 =====
+
+DEFAULT_CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "happy": "Use when the conversation involves joy, success, celebration, or positive feedback (e.g., problem solved, achievement unlocked)",
     "cute": "For adorable interactions, softening tone, or moe scenarios (e.g., pet topics, comforting, acting cute)",
     "funny": "When the conversation has humor, teasing, parody, or meme battles (e.g., jokes, pranks, reaction memes)",
@@ -87,15 +110,78 @@ CATEGORY_DESCRIPTIONS: dict[str, str] = {
     "other": "Fallback for uncategorizable memes",
 }
 
-# All valid category names
-ALL_CATEGORIES = list(CATEGORY_DESCRIPTIONS.keys())
+
+# ===== 兼容旧版的模块级符号 =====
+
+TAG_TO_CATEGORIES = DEFAULT_TAG_TO_CATEGORIES
+CATEGORY_DESCRIPTIONS = DEFAULT_CATEGORY_DESCRIPTIONS
 
 
-def get_categories_for_tags(tags: list[str]) -> set[str]:
-    """Return matched categories for a list of tags."""
-    matched = set()
+def get_default_all_categories() -> list[str]:
+    """返回默认全部分类名列表。"""
+    return list(DEFAULT_CATEGORY_DESCRIPTIONS.keys())
+
+
+def load_mapping_from_json(path: str | Path) -> tuple[dict[str, list[str]], dict[str, str]]:
+    """从外部 JSON 文件加载标签映射与分类描述。
+
+    Args:
+        path: JSON 文件路径。
+
+    Returns:
+        (tag_to_categories, category_descriptions) 元组。
+
+    Raises:
+        FileNotFoundError: 文件不存在。
+        ValueError: JSON 结构不合法。
+    """
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"标签映射文件不存在: {p}")
+
+    with open(p, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if not isinstance(data, dict):
+        raise ValueError("JSON 顶层必须是对象")
+
+    raw_tags = data.get("tag_to_categories", {})
+    if not isinstance(raw_tags, dict):
+        raise ValueError("tag_to_categories 必须是对象")
+
+    tag_to_categories: dict[str, list[str]] = {}
+    for tag, cats in raw_tags.items():
+        if not isinstance(tag, str) or not isinstance(cats, list):
+            raise ValueError(f"非法条目: {tag!r} -> {cats!r}")
+        cleaned = [str(c).strip() for c in cats if c]
+        if cleaned:
+            tag_to_categories[tag] = cleaned
+
+    raw_desc = data.get("category_descriptions", {})
+    if not isinstance(raw_desc, dict):
+        raise ValueError("category_descriptions 必须是对象")
+
+    category_descriptions: dict[str, str] = {
+        str(k): str(v) for k, v in raw_desc.items() if v
+    }
+
+    return tag_to_categories, category_descriptions
+
+
+def get_categories_for_tags(
+    tags: list[str],
+    mapping: dict[str, list[str]] | None = None,
+) -> set[str]:
+    """Return matched categories for a list of tags.
+
+    Args:
+        tags: 待匹配的中文标签列表。
+        mapping: 标签→分类映射表，为 None 时使用默认映射。
+    """
+    table = mapping if mapping is not None else DEFAULT_TAG_TO_CATEGORIES
+    matched: set[str] = set()
     for tag in tags:
-        cats = TAG_TO_CATEGORIES.get(tag)
+        cats = table.get(tag)
         if cats:
             matched.update(cats)
     return matched
