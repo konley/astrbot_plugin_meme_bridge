@@ -2,6 +2,7 @@
 meme_bridge - 表情包桥接插件
 自动将 smart_imagechat_hub 收集的表情包同步到 meme_manager 分类目录。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -13,6 +14,7 @@ import shutil
 import time
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import filter
@@ -25,7 +27,6 @@ from .tag_mapping import (
     get_default_all_categories,
     load_mapping_from_json,
 )
-
 
 _LLM_CLASSIFY_PROMPTS: dict[str, str] = {
     "en": """You are a meme classifier. Look at the image and select 1-3 categories that best fit it.
@@ -58,7 +59,7 @@ def _file_sha256(path: Path) -> str:
     "meme_bridge",
     "konley",
     "表情包桥接插件 - 自动同步 smart_imagechat_hub 表情包到 meme_manager",
-    "v1.2.0",
+    "v1.3.0",
 )
 class MemeBridgePlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
@@ -74,8 +75,10 @@ class MemeBridgePlugin(Star):
         self.target_dir = plugin_data / self.config.get(
             "target_plugin_name", "meme_manager"
         )
-        self.target_memes_dir = self.target_dir / "memes"
-        self.target_data_path = self.target_dir / "memes_data.json"
+        self.target_memes_dir = self.target_dir / "memes"  # legacy layout fallback
+        self.target_data_path = (
+            self.target_dir / "memes_data.json"
+        )  # legacy layout fallback
 
         # 同步状态文件
         self.sync_state_path = plugin_data / "meme_bridge" / "sync_state.json"
@@ -131,6 +134,7 @@ class MemeBridgePlugin(Star):
                 data.setdefault("total_synced", 0)
                 data.setdefault("last_sync_time", 0)
                 data.setdefault("last_sync_stats", None)
+                data.setdefault("target_states", {})
                 return data
             except Exception as e:
                 logger.warning(f"读取同步状态失败，将重置: {e}")
@@ -144,7 +148,132 @@ class MemeBridgePlugin(Star):
             "total_synced": 0,
             "last_sync_time": 0,
             "last_sync_stats": None,
+            "target_states": {},
         }
+
+    def _pick_target_pack_id(self) -> str | None:
+        """解析目标 pack_id。优先级: 配置固定 pack > default 规则 > enabled pack > 常见回退 > 首个目录。"""
+        packs_dir = self.target_dir / "packs"
+        if not packs_dir.is_dir():
+            return None
+
+        configured_pack_id = str(self.config.get("target_pack_id") or "").strip()
+        if configured_pack_id:
+            if (packs_dir / configured_pack_id).is_dir():
+                return configured_pack_id
+            logger.warning(
+                f"配置的 target_pack_id 不存在: {configured_pack_id}，将自动解析默认包"
+            )
+
+        selection_rules_path = self.target_dir / "selection_rules.json"
+        if selection_rules_path.is_file():
+            try:
+                with open(selection_rules_path, "r", encoding="utf-8") as f:
+                    selection_rules = json.load(f)
+                rules = (
+                    selection_rules.get("rules", [])
+                    if isinstance(selection_rules, dict)
+                    else []
+                )
+                if isinstance(rules, list):
+                    for rule in reversed(rules):
+                        if not isinstance(rule, dict):
+                            continue
+                        if str(rule.get("scope") or "").strip().lower() != "default":
+                            continue
+                        pack_id = str(rule.get("pack_id") or "").strip()
+                        if pack_id and (packs_dir / pack_id).is_dir():
+                            return pack_id
+            except Exception as e:
+                logger.warning(f"读取 selection_rules.json 失败: {e}")
+
+        registry_path = self.target_dir / "registry.json"
+        if registry_path.is_file():
+            try:
+                with open(registry_path, "r", encoding="utf-8") as f:
+                    registry = json.load(f)
+                installed = (
+                    registry.get("installed_packs", [])
+                    if isinstance(registry, dict)
+                    else []
+                )
+                if isinstance(installed, list):
+                    for item in installed:
+                        if not isinstance(item, dict):
+                            continue
+                        if not bool(item.get("enabled", True)):
+                            continue
+                        pack_id = str(item.get("id") or "").strip()
+                        if pack_id and (packs_dir / pack_id).is_dir():
+                            return pack_id
+            except Exception as e:
+                logger.warning(f"读取 registry.json 失败: {e}")
+
+        for fallback_pack_id in ("builtin-default", "legacy-migrated"):
+            if (packs_dir / fallback_pack_id).is_dir():
+                return fallback_pack_id
+
+        try:
+            candidates = sorted(
+                path.name for path in packs_dir.iterdir() if path.is_dir()
+            )
+        except Exception:
+            candidates = []
+        return candidates[0] if candidates else None
+
+    def _resolve_target_context(self) -> dict[str, Any]:
+        """解析目标目录上下文，兼容新旧 meme_manager 存储布局。"""
+        pack_id = self._pick_target_pack_id()
+        if pack_id:
+            pack_dir = self.target_dir / "packs" / pack_id
+            return {
+                "layout": "pack",
+                "pack_id": pack_id,
+                "pack_dir": pack_dir,
+                "memes_dir": pack_dir / "memes",
+                "metadata_path": pack_dir / "memes_data.json",
+                "state_key": f"pack:{pack_id}",
+            }
+
+        return {
+            "layout": "legacy",
+            "pack_id": None,
+            "pack_dir": self.target_dir,
+            "memes_dir": self.target_memes_dir,
+            "metadata_path": self.target_data_path,
+            "state_key": "legacy:root",
+        }
+
+    def _ensure_target_state(self, state_key: str) -> dict:
+        """获取目标维度同步状态；兼容迁移旧版（无 target_states）状态结构。"""
+        target_states = self.sync_state.setdefault("target_states", {})
+        state = target_states.get(state_key)
+        if isinstance(state, dict):
+            state.setdefault("synced_ids", {})
+            state.setdefault("content_hashes", {})
+            state.setdefault("total_synced", 0)
+            state.setdefault("last_sync_time", 0)
+            state.setdefault("last_sync_stats", None)
+            return state
+
+        state = {
+            "synced_ids": {},
+            "content_hashes": {},
+            "total_synced": 0,
+            "last_sync_time": 0,
+            "last_sync_stats": None,
+        }
+
+        # 迁移旧版单状态字段，避免升级后第一次同步重复处理历史图片。
+        if not target_states and self.sync_state.get("synced_ids"):
+            state["synced_ids"] = dict(self.sync_state.get("synced_ids", {}))
+            state["content_hashes"] = dict(self.sync_state.get("content_hashes", {}))
+            state["total_synced"] = int(self.sync_state.get("total_synced", 0) or 0)
+            state["last_sync_time"] = int(self.sync_state.get("last_sync_time", 0) or 0)
+            state["last_sync_stats"] = self.sync_state.get("last_sync_stats")
+
+        target_states[state_key] = state
+        return state
 
     def _save_sync_state(self):
         try:
@@ -160,6 +289,21 @@ class MemeBridgePlugin(Star):
             keep_hashes: True 时保留 content_hashes（用于 dry-run 演练或重分类）。
         """
         if keep_hashes:
+            target_states = self.sync_state.get("target_states", {})
+            if isinstance(target_states, dict):
+                for key, state in list(target_states.items()):
+                    if not isinstance(state, dict):
+                        target_states[key] = {
+                            "synced_ids": {},
+                            "content_hashes": {},
+                            "total_synced": 0,
+                            "last_sync_time": 0,
+                            "last_sync_stats": None,
+                        }
+                        continue
+                    state["synced_ids"] = {}
+                    state["total_synced"] = 0
+                    state["last_sync_stats"] = None
             self.sync_state["synced_ids"] = {}
             self.sync_state["total_synced"] = 0
             self.sync_state["last_sync_stats"] = None
@@ -206,6 +350,12 @@ class MemeBridgePlugin(Star):
         # 热重载外部标签映射
         self._load_tag_mapping()
 
+        target_ctx = self._resolve_target_context()
+        target_memes_dir: Path = target_ctx["memes_dir"]
+        target_data_path: Path = target_ctx["metadata_path"]
+        target_pack_id = target_ctx.get("pack_id")
+        target_state = self._ensure_target_state(str(target_ctx["state_key"]))
+
         index_path = self.source_dir / "image_index.json"
         if not index_path.exists():
             logger.warning(f"源插件 image_index.json 不存在: {index_path}")
@@ -219,8 +369,8 @@ class MemeBridgePlugin(Star):
             return {"error": f"读取失败: {e}"}
 
         images: dict = index_data.get("images", {})
-        synced_ids: dict = dict(self.sync_state.get("synced_ids", {}))
-        content_hashes: dict = dict(self.sync_state.get("content_hashes", {}))
+        synced_ids: dict = dict(target_state.get("synced_ids", {}))
+        content_hashes: dict = dict(target_state.get("content_hashes", {}))
 
         new_images: list[tuple[str, dict]] = []
         for img_id, img_info in images.items():
@@ -237,20 +387,24 @@ class MemeBridgePlugin(Star):
             "skipped": 0,
             "failed": 0,
             "duplicate": 0,
+            "target_memes_dir": target_memes_dir,
         }
 
         if not new_images:
-            self.sync_state["last_sync_time"] = int(time.time())
+            now_ts = int(time.time())
+            target_state["last_sync_time"] = now_ts
+            self.sync_state["last_sync_time"] = now_ts
             self._save_sync_state()
-            stats["total_library"] = self._count_library()
+            stats["total_library"] = self._count_library(target_memes_dir)
             stats["dry_run"] = self.config.get("dry_run", False)
+            stats["target_pack_id"] = target_pack_id
             result = self._build_result(stats)
             self.last_sync_stats = result
             return result
 
         dry_run = bool(self.config.get("dry_run", False))
         if not dry_run:
-            self.target_memes_dir.mkdir(parents=True, exist_ok=True)
+            target_memes_dir.mkdir(parents=True, exist_ok=True)
 
         # Step 1: 校验源文件 + 计算哈希 + 哈希去重
         dedup_hashes = bool(self.config.get("dedup_by_hash", True))
@@ -341,8 +495,12 @@ class MemeBridgePlugin(Star):
 
             if not dry_run:
                 copy_results = await asyncio.gather(
-                    *[self._copy_to_category(src_path, matched, cat, filename)
-                      for cat in matched]
+                    *[
+                        self._copy_to_category(
+                            src_path, target_memes_dir, matched, cat, filename
+                        )
+                        for cat in matched
+                    ]
                 )
                 for ok, cat in copy_results:
                     if ok:
@@ -374,15 +532,24 @@ class MemeBridgePlugin(Star):
 
         # Step 5: 更新 memes_data.json + 持久化
         if not dry_run and stats["categories"]:
-            self._update_memes_data(stats["categories"])
+            self._update_memes_data(target_data_path, stats["categories"])
 
-        self.sync_state["synced_ids"] = synced_ids
-        self.sync_state["content_hashes"] = content_hashes
-        self.sync_state["total_synced"] = len(synced_ids)
-        self.sync_state["last_sync_time"] = int(time.time())
+        now_ts = int(time.time())
+        target_state["synced_ids"] = synced_ids
+        target_state["content_hashes"] = content_hashes
+        target_state["total_synced"] = len(synced_ids)
+        target_state["last_sync_time"] = now_ts
 
+        self.sync_state["last_sync_time"] = now_ts
+        self.sync_state["total_synced"] = sum(
+            len((state or {}).get("synced_ids", {}))
+            for state in self.sync_state.get("target_states", {}).values()
+            if isinstance(state, dict)
+        )
+
+        stats["target_pack_id"] = target_pack_id
         result = self._build_result(stats)
-        self.sync_state["last_sync_stats"] = {
+        summary = {
             "total_new": result["total_new"],
             "categories": result["categories"],
             "llm_count": result["llm_count"],
@@ -390,8 +557,11 @@ class MemeBridgePlugin(Star):
             "failed": result["failed"],
             "duplicate": result["duplicate"],
             "dry_run": result["dry_run"],
-            "timestamp": self.sync_state["last_sync_time"],
+            "timestamp": now_ts,
+            "target_pack_id": target_pack_id,
         }
+        target_state["last_sync_stats"] = summary
+        self.sync_state["last_sync_stats"] = summary
         self._save_sync_state()
 
         self.last_sync_stats = result
@@ -400,12 +570,13 @@ class MemeBridgePlugin(Star):
     async def _copy_to_category(
         self,
         src_path: Path,
+        target_memes_dir: Path,
         matched: set[str],
         category: str,
         filename: str,
     ) -> tuple[bool, str]:
         """异步复制到目标分类目录。"""
-        cat_dir = self.target_memes_dir / category
+        cat_dir = target_memes_dir / category
         try:
             cat_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
@@ -424,7 +595,11 @@ class MemeBridgePlugin(Star):
             return False, category
 
     def _build_result(self, stats: dict) -> dict:
-        total_library = self._count_library()
+        target_memes_dir = stats.get("target_memes_dir")
+        if isinstance(target_memes_dir, Path):
+            total_library = self._count_library(target_memes_dir)
+        else:
+            total_library = self._count_library(self.target_memes_dir)
         return {
             "total_new": stats.get("total_new", 0),
             "categories": dict(stats.get("categories", {})),
@@ -434,36 +609,42 @@ class MemeBridgePlugin(Star):
             "duplicate": stats.get("duplicate", 0),
             "total_library": total_library,
             "dry_run": bool(self.config.get("dry_run", False)),
+            "target_pack_id": stats.get("target_pack_id"),
         }
 
-    def _update_memes_data(self, new_categories: dict):
+    def _update_memes_data(self, metadata_path: Path, new_categories: dict):
         """将新分类描述合并到 memes_data.json（不覆盖已有条目）。"""
         existing: dict = {}
-        if self.target_data_path.exists():
+        if metadata_path.exists():
             try:
-                with open(self.target_data_path, "r", encoding="utf-8") as f:
+                with open(metadata_path, "r", encoding="utf-8") as f:
                     existing = json.load(f)
             except Exception:
                 pass
 
+        if not isinstance(existing, dict):
+            existing = {}
+
         updated = False
         for cat in new_categories:
-            if cat not in existing and cat in self.category_descriptions:
-                existing[cat] = self.category_descriptions[cat]
+            if cat not in existing:
+                existing[cat] = self.category_descriptions.get(cat, "请添加描述")
                 updated = True
 
         if updated:
             try:
-                with open(self.target_data_path, "w", encoding="utf-8") as f:
+                metadata_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(metadata_path, "w", encoding="utf-8") as f:
                     json.dump(existing, f, ensure_ascii=False, indent=2)
             except Exception as e:
                 logger.warning(f"更新 memes_data.json 失败: {e}")
 
-    def _count_library(self) -> int:
-        if not self.target_memes_dir.exists():
+    def _count_library(self, target_memes_dir: Path | None = None) -> int:
+        memes_dir = target_memes_dir or self.target_memes_dir
+        if not memes_dir.exists():
             return 0
         total = 0
-        for p in self.target_memes_dir.rglob("*"):
+        for p in memes_dir.rglob("*"):
             if p.is_file():
                 total += 1
         return total
@@ -487,11 +668,12 @@ class MemeBridgePlugin(Star):
             img_b64 = base64.b64encode(img_data).decode("utf-8")
 
             categories_str = "\n".join(
-                f"- {cat}: {desc}"
-                for cat, desc in self.category_descriptions.items()
+                f"- {cat}: {desc}" for cat, desc in self.category_descriptions.items()
             )
             lang = (self.config.get("llm_prompt_language") or "en").lower()
-            prompt_template = _LLM_CLASSIFY_PROMPTS.get(lang, _LLM_CLASSIFY_PROMPTS["en"])
+            prompt_template = _LLM_CLASSIFY_PROMPTS.get(
+                lang, _LLM_CLASSIFY_PROMPTS["en"]
+            )
             prompt = prompt_template.format(categories=categories_str)
 
             resp = await provider.text_chat(
@@ -555,7 +737,9 @@ class MemeBridgePlugin(Star):
             yield event.plain_result("⚠️ 此指令仅 Bot 管理员可用")
             return
 
-        yield event.plain_result("⚠️ 即将清空同步状态并重新扫描（已同步图片会重新复制）...")
+        yield event.plain_result(
+            "⚠️ 即将清空同步状态并重新扫描（已同步图片会重新复制）..."
+        )
         self.reset_sync_state(keep_hashes=False)
         stats = await self._do_sync()
 
@@ -567,10 +751,12 @@ class MemeBridgePlugin(Star):
 
     @filter.command("同步状态", alias={"meme_status"})
     async def cmd_status(self, event):
-        total_synced = self.sync_state.get("total_synced", 0)
-        total_library = self._count_library()
-        last_time = self.sync_state.get("last_sync_time", 0)
-        last_stats = self.sync_state.get("last_sync_stats") or self.last_sync_stats
+        target_ctx = self._resolve_target_context()
+        target_state = self._ensure_target_state(str(target_ctx["state_key"]))
+        total_synced = int(target_state.get("total_synced", 0) or 0)
+        total_library = self._count_library(target_ctx["memes_dir"])
+        last_time = int(target_state.get("last_sync_time", 0) or 0)
+        last_stats = target_state.get("last_sync_stats") or self.last_sync_stats
 
         lines = [
             "[表情包同步状态]",
@@ -585,6 +771,14 @@ class MemeBridgePlugin(Star):
             f"Dry-run: {'开启' if self.config.get('dry_run', False) else '关闭'}",
         ]
 
+        lines.append(
+            f"目标存储: {'packs/' + str(target_ctx['pack_id']) if target_ctx.get('pack_id') else 'legacy 根目录'}"
+        )
+        fixed_pack = str(self.config.get("target_pack_id") or "").strip()
+        lines.append(
+            f"目标 pack 选择: {'固定 ' + fixed_pack if fixed_pack else '自动跟随 default 规则'}"
+        )
+
         mapping_path = (self.config.get("tag_mapping_path") or "").strip()
         lines.append(
             f"标签映射: {'外部 ' + mapping_path if mapping_path else '内置默认'}"
@@ -593,7 +787,9 @@ class MemeBridgePlugin(Star):
         if last_time and last_time > 1e10:
             from datetime import datetime
 
-            lines.append(f"上次同步: {datetime.fromtimestamp(last_time).strftime('%Y-%m-%d %H:%M:%S')}")
+            lines.append(
+                f"上次同步: {datetime.fromtimestamp(last_time).strftime('%Y-%m-%d %H:%M:%S')}"
+            )
         elif last_time:
             lines.append(f"上次同步: 启动后 {int(last_time)} 秒")
 
@@ -623,15 +819,23 @@ class MemeBridgePlugin(Star):
         failed = stats.get("failed", 0)
         duplicate = stats.get("duplicate", 0)
         dry_run = stats.get("dry_run", False)
+        target_pack_id = stats.get("target_pack_id")
 
-        prefix = "[表情包同步] 完成 ✅" if not dry_run else "[表情包同步] 演练完成 ✅（dry-run，未复制文件）"
+        prefix = (
+            "[表情包同步] 完成 ✅"
+            if not dry_run
+            else "[表情包同步] 演练完成 ✅（dry-run，未复制文件）"
+        )
 
         if total_new == 0:
-            msg = f"{prefix} 未发现新表情包，当前图库共 {total_library} 张"
+            target_line = f"（目标表情包: {target_pack_id}）" if target_pack_id else ""
+            msg = f"{prefix} 未发现新表情包，当前图库共 {total_library} 张{target_line}"
             extras = self._format_extras(duplicate, skipped, failed)
             return msg + extras
 
         lines = [prefix]
+        if target_pack_id:
+            lines.append(f"目标表情包: {target_pack_id}")
 
         sorted_cats = sorted(categories.items(), key=lambda x: -x[1])
         if len(sorted_cats) > 6:

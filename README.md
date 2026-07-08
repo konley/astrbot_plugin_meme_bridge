@@ -10,15 +10,15 @@
 
 AstrBot 生态中有两个优秀的表情包插件，各有优劣：
 
-|  | [smart_imagechat_hub](https://github.com/QingchenWait/astrbot_plugin_smart_imagechat_hub) | [meme_manager](https://github.com/anka-afk/astrbot_plugin_meme_manager) |
-| :---: | :---: | :---: |
-| **自动收集群聊表情包** | ✅ 支持 | ❌ 不支持 |
-| **AI 自动打标签** | ✅ 每张图细粒度标签 | ❌ 无 |
-| **斗图** | ✅ 支持 | ❌ 不支持 |
-| **主动发表情包** | ✅ 支持，但费 token、频率低 | ✅ 零 token、频率高 |
-| **Token 消耗** | 高（语义匹配 + LLM 分析） | 极低（仅 system prompt 多几行） |
-| **匹配精度** | 高（细粒度语义匹配） | 中（分类级 + 随机抽图） |
-| **图库管理** | JSON 索引 + WebUI | 文件夹 + WebUI |
+|                        | [smart_imagechat_hub](https://github.com/QingchenWait/astrbot_plugin_smart_imagechat_hub) | [meme_manager](https://github.com/anka-afk/astrbot_plugin_meme_manager) |
+| :--------------------: | :---------------------------------------------------------------------------------------: | :---------------------------------------------------------------------: |
+| **自动收集群聊表情包** |                                          ✅ 支持                                          |                                ❌ 不支持                                |
+|   **AI 自动打标签**    |                                    ✅ 每张图细粒度标签                                    |                                  ❌ 无                                  |
+|        **斗图**        |                                          ✅ 支持                                          |                                ❌ 不支持                                |
+|    **主动发表情包**    |                                ✅ 支持，但费 token、频率低                                |                           ✅ 零 token、频率高                           |
+|     **Token 消耗**     |                                 高（语义匹配 + LLM 分析）                                 |                     极低（仅 system prompt 多几行）                     |
+|      **匹配精度**      |                                   高（细粒度语义匹配）                                    |                         中（分类级 + 随机抽图）                         |
+|      **图库管理**      |                                     JSON 索引 + WebUI                                     |                             文件夹 + WebUI                              |
 
 **最佳实践：** 让旧插件负责收集和斗图，让新插件负责日常发图。本桥接插件自动将旧插件收集并打标签的新表情包，按分类同步到新插件的图库目录中。
 
@@ -65,24 +65,25 @@ AstrBot 生态中有两个优秀的表情包插件，各有优劣：
 
 ### 5. 配置新插件
 
-确保 `meme_manager` 已正常运行。如果你已经有了分类文件夹和 `memes_data.json`（通过手动导入或本插件的首次迁移），桥接插件会在同步时自动维护和更新分类描述。
+确保 `meme_manager` 已正常运行。在新版本多包结构下，桥接插件会自动同步到 `packs/<default_pack_id>/memes/`（或你配置的目标 pack），并自动维护该 pack 下的 `memes_data.json`。
 
 ### 6. 配置桥接插件
 
 在本插件的 WebUI 设置页面中配置以下选项（均可后续修改）：
 
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `enable_sync` | 布尔 | `true` | 启用自动定时同步 |
-| `sync_interval` | 整数 | `600` | 扫描间隔（秒），默认 10 分钟 |
-| `llm_provider_id` | 字符串 | `""` | LLM Provider ID，留空使用框架默认。需支持图片输入 |
-| `enable_llm_fallback` | 布尔 | `true` | 标签映射不到时是否调用视觉 LLM 辅助分类 |
-| `source_plugin_name` | 字符串 | `astrbot_plugin_smart_imagechat_hub` | 旧插件目录名 |
-| `target_plugin_name` | 字符串 | `meme_manager` | 新插件目录名 |
+| 配置项                | 类型   | 默认值                               | 说明                                                                             |
+| --------------------- | ------ | ------------------------------------ | -------------------------------------------------------------------------------- |
+| `enable_sync`         | 布尔   | `true`                               | 启用自动定时同步                                                                 |
+| `sync_interval`       | 整数   | `600`                                | 扫描间隔（秒），默认 10 分钟                                                     |
+| `llm_provider_id`     | 字符串 | `""`                                 | LLM Provider ID，留空使用框架默认。需支持图片输入                                |
+| `enable_llm_fallback` | 布尔   | `true`                               | 标签映射不到时是否调用视觉 LLM 辅助分类                                          |
+| `source_plugin_name`  | 字符串 | `astrbot_plugin_smart_imagechat_hub` | 旧插件目录名                                                                     |
+| `target_plugin_name`  | 字符串 | `meme_manager`                       | 新插件目录名                                                                     |
+| `target_pack_id`      | 字符串 | `""`                                 | 目标 pack_id。留空自动跟随 meme_manager 的 default 规则，填写后固定同步到该 pack |
 
 ### 7. 首次迁移（可选）
 
-如果你已经在旧插件中积累了大量表情包，建议在安装桥接插件前先执行一次手动迁移（将旧插件备份中的图片按标签分类复制到 `meme_manager/memes/` 目录）。桥接插件仅同步**新增量**的图片，不会重复处理已经迁移过的图片。
+如果你已经在旧插件中积累了大量表情包，建议在安装桥接插件前先执行一次手动迁移（复制到目标 pack 的 `meme_manager/packs/<pack_id>/memes/` 目录）。桥接插件仅同步**新增量**的图片，不会重复处理已经迁移过的图片。
 
 ## 🔄 工作原理
 
@@ -95,7 +96,7 @@ AstrBot 生态中有两个优秀的表情包插件，各有优劣：
                                               │
                                               └─ 标签无法映射 → 调视觉 LLM 选分类 → 复制
                                                          ↓
-                                              meme_manager/memes/{分类}/
+                                              meme_manager/packs/<pack_id>/memes/{分类}/
                                                          ↓
                                               meme_manager 正常发图（零 token）
 ```
@@ -117,27 +118,27 @@ AstrBot 生态中有两个优秀的表情包插件，各有优劣：
 <details>
 <summary>📋 全部分类列表（点击展开）</summary>
 
-| Category | Description | Example Source Tags |
-|----------|-------------|---------------------|
-| `happy` | Joy, success, celebration | 开心、大笑、得意、欢呼 |
-| `cute` | Adorable interactions, moe | 可爱、呆萌、卖萌、Q版 |
-| `funny` | Humor, teasing, meme battles | 搞笑、恶搞、梗图、熊猫头 |
-| `sad` | Sadness, crying, apologizing | 委屈、哭泣、流泪、崩溃 |
-| `angry` | Complaints, criticism, frustration | 生气、愤怒、不满、抓狂 |
-| `shy` | Privacy, embarrassment, praise | 害羞、脸红、尴尬 |
-| `confused` | Clarification, puzzlement | 疑惑、困惑、无语、思考 |
-| `surprised` | Shock, unexpected, panic | 惊讶、震惊、慌张、惊恐 |
-| `sleepy` | Rest, fatigue, bedtime | 困倦、慵懒、疲惫、躺平 |
-| `playful` | Teasing, flirting, tsundere | 傲娇、俏皮、比心、撒娇 |
-| `helpless` | Resignation, speechlessness | 无奈、冷淡、讽刺、自嘲 |
-| `cozy` | Healing, warmth, comfort | 温馨、治愈、暖色调 |
-| `anime` | Anime, game, 2D art | 二次元、动漫角色、粉发、猫耳 |
-| `cat` | Cats, pets, furry animals | 猫、猫咪、橘猫、毛茸茸 |
-| `pig` | Pig-related content | 小猪、猪 |
-| `rabbit` | Rabbit, bunny | 兔子、兔耳、白兔 |
-| `photo` | Real photos, screenshots | 照片、中年男性、室内 |
-| `cartoon` | Pixel art, cartoon, hand-drawn | 像素风、简笔画、手绘、3D渲染 |
-| `other` | Fallback for uncategorizable | （无法归入以上分类的图片） |
+| Category    | Description                        | Example Source Tags          |
+| ----------- | ---------------------------------- | ---------------------------- |
+| `happy`     | Joy, success, celebration          | 开心、大笑、得意、欢呼       |
+| `cute`      | Adorable interactions, moe         | 可爱、呆萌、卖萌、Q版        |
+| `funny`     | Humor, teasing, meme battles       | 搞笑、恶搞、梗图、熊猫头     |
+| `sad`       | Sadness, crying, apologizing       | 委屈、哭泣、流泪、崩溃       |
+| `angry`     | Complaints, criticism, frustration | 生气、愤怒、不满、抓狂       |
+| `shy`       | Privacy, embarrassment, praise     | 害羞、脸红、尴尬             |
+| `confused`  | Clarification, puzzlement          | 疑惑、困惑、无语、思考       |
+| `surprised` | Shock, unexpected, panic           | 惊讶、震惊、慌张、惊恐       |
+| `sleepy`    | Rest, fatigue, bedtime             | 困倦、慵懒、疲惫、躺平       |
+| `playful`   | Teasing, flirting, tsundere        | 傲娇、俏皮、比心、撒娇       |
+| `helpless`  | Resignation, speechlessness        | 无奈、冷淡、讽刺、自嘲       |
+| `cozy`      | Healing, warmth, comfort           | 温馨、治愈、暖色调           |
+| `anime`     | Anime, game, 2D art                | 二次元、动漫角色、粉发、猫耳 |
+| `cat`       | Cats, pets, furry animals          | 猫、猫咪、橘猫、毛茸茸       |
+| `pig`       | Pig-related content                | 小猪、猪                     |
+| `rabbit`    | Rabbit, bunny                      | 兔子、兔耳、白兔             |
+| `photo`     | Real photos, screenshots           | 照片、中年男性、室内         |
+| `cartoon`   | Pixel art, cartoon, hand-drawn     | 像素风、简笔画、手绘、3D渲染 |
+| `other`     | Fallback for uncategorizable       | （无法归入以上分类的图片）   |
 
 </details>
 
@@ -151,17 +152,18 @@ AstrBot 生态中有两个优秀的表情包插件，各有优劣：
 
 ## 📝 使用指令
 
-| 指令 | 别名 | 说明 |
-|------|------|------|
-| `/表情包同步` | `/同步表情包`、`/meme_sync` | 立即执行一次同步 |
+| 指令          | 别名                          | 说明                     |
+| ------------- | ----------------------------- | ------------------------ |
+| `/表情包同步` | `/同步表情包`、`/meme_sync`   | 立即执行一次同步         |
 | `/表情包重扫` | `/重扫表情包`、`/meme_resync` | 清空已同步状态后重新同步 |
-| `/同步状态` | `/meme_status` | 查看同步统计与上次结果 |
+| `/同步状态`   | `/meme_status`                | 查看同步统计与上次结果   |
 
 > 开启 `manual_sync_admin_only` 后，`/表情包同步` 与 `/表情包重扫` 仅 Bot 管理员可用。
 
 ### 同步结果示例
 
 **有新图时：**
+
 ```
 [表情包同步] 完成 ✅
 本次同步 12 张新表情，归入 8 个分类：
@@ -173,11 +175,13 @@ AstrBot 生态中有两个优秀的表情包插件，各有优劣：
 ```
 
 **无新图时：**
+
 ```
 [表情包同步] 完成 ✅ 未发现新表情包，当前图库共 3412 张
 ```
 
 **Dry-run 模式：**
+
 ```
 [表情包同步] 演练完成 ✅（dry-run，未复制文件）
 本次同步 5 张新表情，归入 4 个分类：
@@ -186,20 +190,21 @@ AstrBot 生态中有两个优秀的表情包插件，各有优劣：
 
 ## ⚙️ 配置详解
 
-| 配置项 | 类型 | 默认 | 说明 |
-|--------|------|------|------|
-| `enable_sync` | bool | `true` | 启用自动定时同步 |
-| `sync_interval` | int | `600` | 扫描间隔（秒），不低于 60 |
-| `llm_provider_id` | string | `""` | 视觉 LLM Provider ID，留空用框架默认 |
-| `enable_llm_fallback` | bool | `true` | 标签无法映射时调用视觉 LLM 兜底 |
-| `llm_concurrency` | int | `3` | LLM 视觉分类最大并发数 |
-| `llm_prompt_language` | string | `en` | `en` / `zh`，国产模型建议改 `zh` |
-| `source_plugin_name` | string | `astrbot_plugin_smart_imagechat_hub` | 源插件目录名 |
-| `target_plugin_name` | string | `meme_manager` | 目标插件目录名 |
-| `tag_mapping_path` | string | `""` | 外部标签映射 JSON 绝对路径，留空用内置 |
-| `dedup_by_hash` | bool | `true` | 内容 SHA256 去重，防止多 ID 重复入库 |
-| `dry_run` | bool | `false` | 演练模式：只统计不复制 |
-| `manual_sync_admin_only` | bool | `false` | 手动同步指令仅管理员可用 |
+| 配置项                   | 类型   | 默认                                 | 说明                                                               |
+| ------------------------ | ------ | ------------------------------------ | ------------------------------------------------------------------ |
+| `enable_sync`            | bool   | `true`                               | 启用自动定时同步                                                   |
+| `sync_interval`          | int    | `600`                                | 扫描间隔（秒），不低于 60                                          |
+| `llm_provider_id`        | string | `""`                                 | 视觉 LLM Provider ID，留空用框架默认                               |
+| `enable_llm_fallback`    | bool   | `true`                               | 标签无法映射时调用视觉 LLM 兜底                                    |
+| `llm_concurrency`        | int    | `3`                                  | LLM 视觉分类最大并发数                                             |
+| `llm_prompt_language`    | string | `en`                                 | `en` / `zh`，国产模型建议改 `zh`                                   |
+| `source_plugin_name`     | string | `astrbot_plugin_smart_imagechat_hub` | 源插件目录名                                                       |
+| `target_plugin_name`     | string | `meme_manager`                       | 目标插件目录名                                                     |
+| `target_pack_id`         | string | `""`                                 | 目标 pack_id。留空自动跟随 default 规则，填写后固定同步到指定 pack |
+| `tag_mapping_path`       | string | `""`                                 | 外部标签映射 JSON 绝对路径，留空用内置                             |
+| `dedup_by_hash`          | bool   | `true`                               | 内容 SHA256 去重，防止多 ID 重复入库                               |
+| `dry_run`                | bool   | `false`                              | 演练模式：只统计不复制                                             |
+| `manual_sync_admin_only` | bool   | `false`                              | 手动同步指令仅管理员可用                                           |
 
 ### 外部标签映射（v1.2.0 新增）
 
@@ -245,6 +250,7 @@ astrbot_plugin_meme_bridge/
 ```
 
 运行时数据：
+
 ```
 data/plugin_data/meme_bridge/
 └── sync_state.json           # 同步状态（已同步图片 ID + 内容哈希 + 上次结果摘要）
@@ -255,25 +261,29 @@ data/plugin_data/meme_bridge/
 <details>
 <summary>桥接插件会影响旧插件或新插件的运行吗？</summary>
 
-不会。桥接插件只**读取**旧插件的 `image_index.json` 索引文件，不修改旧插件的任何数据。对于新插件，只向 `memes/` 目录**添加**文件和更新 `memes_data.json`，不修改新插件的源码或运行时状态。
+不会。桥接插件只**读取**旧插件的 `image_index.json` 索引文件，不修改旧插件的任何数据。对于新插件，只向目标 pack 的 `memes/` 目录**添加**文件并更新该 pack 的 `memes_data.json`，不修改新插件源码。
+
 </details>
 
 <details>
 <summary>同一张图片会被同步多次吗？</summary>
 
 不会。桥接插件在 `sync_state.json` 中记录每张已同步图片的 ID，下次扫描时自动跳过。
+
 </details>
 
 <details>
 <summary>一张图片只能归入一个分类吗？</summary>
 
 不是。一张图片可以同时归入多个分类。例如一张同时有"可爱"和"猫猫"标签的图片，会被复制到两个分类文件夹中。
+
 </details>
 
 <details>
 <summary>LLM 辅助分类会消耗多少 token？</summary>
 
 只有标签映射不到的图片才会调用 LLM（约占 10%）。每次调用发送一张图片和约 500 token 的分类描述 prompt，消耗很小。如果你完全不想消耗 token，可以关闭 `enable_llm_fallback`，无法映射的图片将归入"其他"。
+
 </details>
 
 <details>
@@ -285,17 +295,27 @@ data/plugin_data/meme_bridge/
 - **热加载方式（v1.2.0）**：把自定义映射写到 JSON 文件，在 WebUI 的 `tag_mapping_path` 填入绝对路径。下次同步自动生效，无需重载。
 
 已有分类的图片不会自动迁移，仅影响后续新同步的图片。如需对历史图片重新分类，使用 `/表情包重扫`（会清空已同步状态重新复制）。
+
 </details>
 
 <details>
 <summary>旧插件卸载后桥接插件还能用吗？</summary>
 
 不能。桥接插件依赖旧插件的 `image_index.json` 作为数据源。如果旧插件卸载，桥接插件将无法同步新图片，但已同步到 `meme_manager` 的图片不受影响。
+
 </details>
 
 ## 📜 License
 
 MIT
+
+## 🆕 v1.3.0 更新日志
+
+- **新增**：兼容 `meme_manager` 多表情包存储结构，自动识别并写入 `packs/<pack_id>/memes/`
+- **新增**：`target_pack_id` 配置项，支持固定同步到指定 pack
+- **新增**：留空 `target_pack_id` 时自动跟随 `selection_rules.json` 的 default 规则
+- **新增**：同步状态按目标 pack 隔离存储，避免多 pack 场景相互污染
+- **兼容**：保留旧版根目录 `memes/` 布局回退逻辑
 
 ## 🆕 v1.2.0 更新日志
 
